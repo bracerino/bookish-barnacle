@@ -118,23 +118,147 @@ if uploaded_files and "species_list" in st.session_state:
                                     help="Maximum number of radial basis functions.")
             l_max = st.number_input(f"⚙️ {desc} - l_max", min_value=1, max_value=10, value=6, step=1, key=f"{desc}_l_max",
                                     help="Maximum number of spherical harmonics.")
-            descriptor_parameters[desc] = {"species": species, "r_cut": r_cut, "n_max": n_max, "l_max": l_max}
+            sigma = st.number_input(f"⚙️ {desc} - Sigma", min_value=0.01, max_value=2.0, value=1.0, step=0.01,
+                                    key=f"{desc}_sigma",
+                                    help="Standard deviation of the Gaussians used to expand atomic density.")
+
+            rbf = st.selectbox(f"⚙️ {desc} - Radial Basis Function", ["gto", "polynomial"], index=0, key=f"{desc}_rbf",
+                               help="Radial basis functions used for SOAP calculations.")
+
+            # Weighting function dictionary
+            weighting_function = st.selectbox(
+                f"⚙️ {desc} - Weighting Function",
+                ["None", "poly", "pow", "exp"],
+                index=0,
+                key=f"{desc}_weighting_function",
+                help="Defines the weighting method for SOAP."
+            )
+
+            if weighting_function == "None":
+                weighting = None
+            else:
+                weighting = {"function": weighting_function}
+
+                # Get common parameters regardless of function
+                c = st.number_input(
+                    f"⚙️ {desc} - Weighting c", min_value=0.01, max_value=5.0, value=1.0, key=f"{desc}_weighting_c"
+                )
+                r0 = st.number_input(
+                    f"⚙️ {desc} - Weighting r0", min_value=1.0, max_value=10.0, value=3.0, key=f"{desc}_weighting_r0"
+                )
+
+                if weighting_function == "poly":
+                    m = st.number_input(
+                        f"⚙️ {desc} - Weighting m", min_value=1, max_value=10, value=2, key=f"{desc}_weighting_m"
+                    )
+                    weighting.update({"c": c, "m": m, "r0": r0})
+
+                elif weighting_function == "pow":
+                    m = st.number_input(
+                        f"⚙️ {desc} - Weighting m", min_value=1, max_value=10, value=2, key=f"{desc}_weighting_m"
+                    )
+                    weighting.update({"c": c, "m": m, "r0": r0})
+                    d = st.number_input(
+                        f"⚙️ {desc} - Weighting d", min_value=0.01, max_value=5.0, value=1.0, key=f"{desc}_weighting_d"
+                    )
+                    weighting["d"] = d
+                    threshold = st.number_input(
+                        f"⚙️ {desc} - Weighting Threshold", min_value=1e-6, max_value=1e-1, value=1e-2,
+                        key=f"{desc}_weighting_threshold"
+                    )
+                    weighting["threshold"] = threshold
+
+                elif weighting_function == "exp":
+                    # For "exp", include r0 along with other parameters
+                    weighting.update({"c": c, "r0": r0})
+                    d = st.number_input(
+                        f"⚙️ {desc} - Weighting d", min_value=0.01, max_value=5.0, value=1.0, key=f"{desc}_weighting_d"
+                    )
+                    weighting["d"] = d
+                    threshold = st.number_input(
+                        f"⚙️ {desc} - Weighting Threshold", min_value=1e-6, max_value=1e-1, value=1e-2,
+                        key=f"{desc}_weighting_threshold"
+                    )
+                    weighting["threshold"] = threshold
+
+                # Optional w0 parameter for all functions
+                use_w0 = st.checkbox(f"⚙️ {desc} - Use w0 (Override Central Atoms)", key=f"{desc}_weighting_use_w0")
+                if use_w0:
+                    w0 = st.number_input(
+                        f"⚙️ {desc} - w0 Weight", min_value=0.0, max_value=5.0, value=0.0, key=f"{desc}_weighting_w0"
+                    )
+                    weighting["w0"] = w0
+
+            # Averaging mode
+            average = st.selectbox(f"⚙️ {desc} - Averaging Mode", ["off", "inner", "outer"], index=0,
+                                   key=f"{desc}_average",
+                                   help="Defines how SOAP features are averaged.")
+
+            # Compression settings
+            compression_mode = st.selectbox(f"⚙️ {desc} - Compression Mode", ["off", "mu2", "mu1nu1", "crossover"],
+                                            index=0,
+                                            key=f"{desc}_compression_mode",
+                                            help="Defines how SOAP features are compressed.")
+            compression = {"mode": compression_mode}
+            if compression_mode == "mu2":
+                species_weighting = st.text_input(f"⚙️ {desc} - Species Weighting (comma-separated)", "",
+                                                  key=f"{desc}_species_weighting")
+                if species_weighting:
+                    species_weights = {s.strip(): float(w) for s, w in zip(species, species_weighting.split(","))}
+                    compression["species_weighting"] = species_weights
+
+            # Additional boolean parameters
+            periodic = st.checkbox(f"⚙️ {desc} - Periodic", value=True, key=f"{desc}_periodic",
+                                   help="Enable periodic boundary conditions.")
+
+            sparse = st.checkbox(f"⚙️ {desc} - Sparse Output", value=False, key=f"{desc}_sparse",
+                                 help="Output as a sparse matrix.")
+
+            dtype = st.selectbox(f"⚙️ {desc} - Data Type", ["float32", "float64"], index=1, key=f"{desc}_dtype",
+                                 help="Define the data type for SOAP output.")
+
+            descriptor_parameters[desc] = {
+                "species": species,
+                "r_cut": r_cut,
+                "n_max": n_max,
+                "l_max": l_max,
+                "sigma": sigma,
+                "rbf": rbf,
+                "weighting": weighting,
+                "average": average,
+                "compression": compression,
+                "periodic": periodic,
+                "sparse": sparse,
+                "dtype": dtype,
+            }
         elif desc == "ValleOganov":
-            species_input = st.text_input(f"{desc} - Species", ", ".join(species_list), key=f"{desc}_species")
-            st.caption("Comma-separated list of atomic species (e.g., H, O, C).")
+            species_input = st.text_input(f"{desc} - Species", ", ".join(species_list), key=f"{desc}_species",
+                                          help="Comma-separated list of atomic species (e.g., H, O, C).")
             species = [s.strip() for s in species_input.split(",")]
-            function = st.selectbox(f"{desc} - Function", ["distance"], index=0, key=f"{desc}_function")
-            st.caption("Function to compute interatomic distances.")
+            function = st.selectbox(f"{desc} - Function", ["distance", "angle"], index=0, key=f"{desc}_function",
+                                    help="Select the geometry function ('distance' for pairwise distances or 'angle' for angles).")
             sigma = st.number_input(f"{desc} - Sigma", min_value=1e-6, max_value=10.0, value=10 ** (-0.5),
-                                    key=f"{desc}_sigma")
-            st.caption("Smoothing parameter.")
-            n = st.number_input(f"{desc} - n", min_value=10, max_value=500, value=100, step=10, key=f"{desc}_n")
-            st.caption("Number of sample points or bins.")
+                                    key=f"{desc}_sigma", help="Standard deviation of the Gaussian broadening.")
+            n = st.number_input(f"{desc} - n", min_value=10, max_value=500, value=100, step=10,
+                                key=f"{desc}_n", help="Number of discretization points or bins.")
             r_cut = st.number_input(f"{desc} - Cutoff Radius (Å)", min_value=1.0, max_value=10.0, value=8.0,
-                                    key=f"{desc}_r_cut")
-            st.caption("Maximum distance (in Å).")
-            descriptor_parameters[desc] = {"species": species, "function": function, "sigma": sigma, "n": n,
-                                           "r_cut": r_cut}
+                                    key=f"{desc}_r_cut", help="Radial cutoff (maximum distance in Å).")
+            sparse = st.checkbox(f"⚙️ {desc} - Sparse Output", value=False, key=f"{desc}_sparse",
+                                 help="Return output as a sparse matrix (Default: False).")
+
+            # New: Add dtype parameter
+            dtype = st.selectbox(f"⚙️ {desc} - Data Type", ["float32", "float64"], index=1, key=f"{desc}_dtype",
+                                 help="Data type for the output (Default: float64).")
+
+            descriptor_parameters[desc] = {
+                "species": species,
+                "function": function,
+                "sigma": sigma,
+                "n": n,
+                "r_cut": r_cut,
+                "sparse": sparse,
+                "dtype": dtype,
+            }
         elif desc == "PRDF":
             cutoff = st.number_input(f"{desc} - Cutoff (Å)", min_value=5.0, max_value=50.0, value=20.0, step=1.0,
                                      format="%.1f", key=f"{desc}_cutoff")
@@ -177,29 +301,82 @@ if uploaded_files and "species_list" in st.session_state:
             avg_prdf = {comb: np.zeros(len(bins) - 1) for comb in species_combinations}  # Adjusted to match bin count
 
             num_structures = 0
+
+            all_prdf_dict = defaultdict(list)
+            all_distance_dict = {}
+
+            # Process multiple uploaded structures
             for uploaded_file in uploaded_files:
+
                 structure = read(uploaded_file.name)
                 mg_structure = AseAtomsAdaptor.get_structure(structure)
+
+                # Initialize PRDF featurizer
                 featurizer = PartialRadialDistributionFunction(cutoff=cutoff, bin_size=bin_size)
                 featurizer.fit([mg_structure])
+
+                # Extract PRDF values
                 prdf_data = featurizer.featurize(mg_structure)
 
-                if len(prdf_data) != len(species_combinations) * (len(bins) - 1):
-                    st.error(f"Error processing {uploaded_file.name}: PRDF output size mismatch.")
-                    continue
+                # Extract feature labels (e.g., 'Ti-Ti PRDF r=0.00-0.20')
+                feature_labels = featurizer.feature_labels()
 
-                num_structures += 1
-                for i, comb in enumerate(species_combinations):
-                    avg_prdf[comb] += prdf_data[i * (len(bins) - 1):(i + 1) * (len(bins) - 1)]
+                # Temporary dictionaries for the current structure
+                prdf_dict = defaultdict(list)
+                distance_dict = {}
 
-            if num_structures > 0:
-                for comb in avg_prdf:
-                    avg_prdf[comb] /= num_structures
+                # Extract element pairs and corresponding distances
+                for i, label in enumerate(feature_labels):
+                    parts = label.split(" PRDF r=")  # Split into element pair and distance
+                    element_pair = tuple(parts[0].split("-"))  # Convert 'Ti-Ti' to ('Ti', 'Ti')
+                    distance_range = parts[1].split("-")  # e.g., ['0.00', '0.20']
 
-                st.subheader("Averaged PRDF Across Structures")
-                for comb, prdf_values in avg_prdf.items():
+                    # Compute the bin center (midpoint of the range)
+                    bin_center = (float(distance_range[0]) + float(distance_range[1])) / 2
+
+                    # Store the PRDF values and corresponding distances
+                    prdf_dict[element_pair].append(prdf_data[i])  # Ensure this is a list
+
+                    # FIX: Store a **list** of bin centers instead of a single value
+                    if element_pair not in distance_dict:
+                        distance_dict[element_pair] = []  # Initialize list if not present
+
+                    distance_dict[element_pair].append(bin_center)
+
+                # Store PRDF values into global dictionaries for averaging
+                for pair in prdf_dict:
+                    if pair not in all_distance_dict:
+                        all_distance_dict[pair] = distance_dict[pair]  # Save the distance bins
+
+                    # Convert single floats to lists if needed
+                    if isinstance(prdf_dict[pair], float):
+                        prdf_dict[pair] = [prdf_dict[pair]]
+
+                    all_prdf_dict[pair].append(prdf_dict[pair])  # Append list of PRDF values
+
+
+            # Streamlit UI
+            st.subheader("Averaged PRDF Across Structures")
+
+            # Compute and plot averaged PRDF
+            if all_prdf_dict:
+                for comb, prdf_list in all_prdf_dict.items():
+                    # Ensure all PRDF values are arrays
+                    print(prdf_list )
+                    valid_prdf = [np.array(p) for p in prdf_list if
+                                  isinstance(p, list) ]
+                    #valid_prdf=1
+                    # Convert list of lists to NumPy array for averaging
+                    if len(valid_prdf) > 0:
+                        prdf_array = np.vstack(valid_prdf)  # Stack into 2D array
+                        avg_prdf = np.mean(prdf_array, axis=0)  # Compute mean
+                    else:
+                        avg_prdf = np.zeros_like(all_distance_dict[comb])  # Avoid empty arrays
+                    print(all_distance_dict[comb])
+                    print(avg_prdf)
+                    # Plot the averaged PRDF
                     fig, ax = plt.subplots()
-                    ax.plot(bins[:-1], prdf_values, label=f"{comb[0]}-{comb[1]}")
+                    ax.plot(all_distance_dict[comb], avg_prdf, label=f"{comb[0]}-{comb[1]}")
                     ax.set_xlabel("Distance (Å)")
                     ax.set_ylabel("PRDF Intensity")
                     ax.set_title(f"Averaged PRDF: {comb[0]}-{comb[1]}")
